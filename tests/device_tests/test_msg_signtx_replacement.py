@@ -100,37 +100,34 @@ def test_p2pkh_fee_bump(client):
     )
 
     tt = client.features.model == "T"
-    responses = [
-        resp
-        for resp in [
-            request_input(0),
-            request_meta(TXHASH_50f6f1),
-            request_orig_input(0, TXHASH_50f6f1),
-            request_output(0),
-            request_orig_output(0, TXHASH_50f6f1),
-            request_output(1),
-            request_orig_output(1, TXHASH_50f6f1),
-            messages.ButtonRequest(code=B.SignTx),
-            messages.ButtonRequest(code=B.SignTx),
-            request_input(0),
-            request_meta(TXHASH_beafc7),
-            request_input(0, TXHASH_beafc7),
-            request_output(0, TXHASH_beafc7),
-            request_orig_input(0, TXHASH_50f6f1) if tt else None,
-            request_orig_output(0, TXHASH_50f6f1) if tt else None,
-            request_orig_output(1, TXHASH_50f6f1) if tt else None,
-            request_input(0),
-            request_output(0),
-            request_output(1),
-            request_output(0),
-            request_output(1),
-            request_finished(),
-        ]
-        if resp is not None
-    ]
 
     with client:
-        client.set_expected_responses(responses)
+        client.set_expected_responses(
+            [
+                request_input(0),
+                request_meta(TXHASH_50f6f1),
+                request_orig_input(0, TXHASH_50f6f1),
+                request_output(0),
+                request_orig_output(0, TXHASH_50f6f1),
+                request_output(1),
+                request_orig_output(1, TXHASH_50f6f1),
+                messages.ButtonRequest(code=B.SignTx),
+                messages.ButtonRequest(code=B.SignTx),
+                request_input(0),
+                request_meta(TXHASH_beafc7),
+                request_input(0, TXHASH_beafc7),
+                request_output(0, TXHASH_beafc7),
+                (tt, request_orig_input(0, TXHASH_50f6f1)),
+                (tt, request_orig_output(0, TXHASH_50f6f1)),
+                (tt, request_orig_output(1, TXHASH_50f6f1)),
+                request_input(0),
+                request_output(0),
+                request_output(1),
+                request_output(0),
+                request_output(1),
+                request_finished(),
+            ]
+        )
         _, serialized_tx = btc.sign_tx(
             client,
             "Bitcoin",
@@ -305,42 +302,38 @@ def test_p2wpkh_payjoin(
         orig_index=1,
     )
 
-    responses = [
-        resp
-        for resp in [
-            request_input(0),
-            request_meta(TXHASH_65b768),
-            request_orig_input(0, TXHASH_65b768),
-            request_input(1),
-            request_output(0),
-            request_orig_output(0, TXHASH_65b768),
-            request_output(1),
-            request_orig_output(1, TXHASH_65b768),
-            messages.ButtonRequest(code=B.SignTx),
-            messages.ButtonRequest(code=B.SignTx) if fee_confirm else None,
-            request_input(0),
-            request_meta(TXHASH_e4b5b2),
-            request_input(0, TXHASH_e4b5b2),
-            request_output(0, TXHASH_e4b5b2),
-            request_output(1, TXHASH_e4b5b2),
-            request_input(1),
-            request_meta(TXHASH_70f987),
-            request_input(0, TXHASH_70f987),
-            request_output(0, TXHASH_70f987),
-            request_output(1, TXHASH_70f987),
-            request_input(0),
-            request_input(1),
-            request_output(0),
-            request_output(1),
-            request_input(0),
-            request_input(1),
-            request_finished(),
-        ]
-        if resp is not None
-    ]
-
     with client:
-        client.set_expected_responses(responses)
+        client.set_expected_responses(
+            [
+                request_input(0),
+                request_meta(TXHASH_65b768),
+                request_orig_input(0, TXHASH_65b768),
+                request_input(1),
+                request_output(0),
+                request_orig_output(0, TXHASH_65b768),
+                request_output(1),
+                request_orig_output(1, TXHASH_65b768),
+                messages.ButtonRequest(code=B.SignTx),
+                (fee_confirm, messages.ButtonRequest(code=B.SignTx)),
+                request_input(0),
+                request_meta(TXHASH_e4b5b2),
+                request_input(0, TXHASH_e4b5b2),
+                request_output(0, TXHASH_e4b5b2),
+                request_output(1, TXHASH_e4b5b2),
+                request_input(1),
+                request_meta(TXHASH_70f987),
+                request_input(0, TXHASH_70f987),
+                request_output(0, TXHASH_70f987),
+                request_output(1, TXHASH_70f987),
+                request_input(0),
+                request_input(1),
+                request_output(0),
+                request_output(1),
+                request_input(0),
+                request_input(1),
+                request_finished(),
+            ]
+        )
         _, serialized_tx = btc.sign_tx(
             client,
             "Testnet",
