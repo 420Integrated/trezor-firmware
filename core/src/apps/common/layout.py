@@ -139,15 +139,16 @@ async def show_success(
     )
 
 
-def paginate_content(
-    content: List[TextContent],
+def paginate_text(
+    text: str,
     header: str,
     header_icon: str = ui.ICON_DEFAULT,
     icon_color: int = ui.ORANGE_ICON,
-    break_spaces: bool = False,
+    break_words: bool = False,
 ) -> Union[Text, Paginated]:
-    breaks = break_lines(content, False, 65535, break_spaces=break_spaces)
-    n_lines = len(breaks) + 1
+    n_lines = 1
+    for char in break_lines(text, 0, break_words=break_words):
+        n_lines += 1
 
     if n_lines <= TEXT_MAX_LINES:
         result = Text(
@@ -156,26 +157,28 @@ def paginate_content(
             icon_color=icon_color,
             new_lines=False,
         )
-        result.content = content
-        result.breaks = breaks
+        result.normal(text)
         return result
     else:
-        breaks = break_lines(
-            content, False, 65535, offset_x_max=220, break_spaces=break_spaces
-        )
-        n_lines = len(breaks) + 1
-        n_pages = n_lines // TEXT_MAX_LINES + (1 if n_lines % TEXT_MAX_LINES > 0 else 0)
-        assert n_pages > 1
-        result_pages = []  # type: List[ui.Component]
-        for page_no in range(n_pages):
-            c = Text(
-                header,
-                header_icon=header_icon,
-                icon_color=icon_color,
-                new_lines=False,
-            )
-            c.content = content
-            c.breaks = breaks
-            c.line_offset = page_no * TEXT_MAX_LINES
-            result_pages.append(c)
-        return Paginated(result_pages)
+        pages: List[ui.Component] = []
+        n_lines = 1
+        last_page_break = 0
+        for char in break_lines(
+            text, 0, break_words=break_words, line_width=206
+        ):
+            n_lines += 1
+            if n_lines > TEXT_MAX_LINES:
+                page = Text(
+                    header,
+                    header_icon=header_icon,
+                    icon_color=icon_color,
+                    new_lines=False,
+                    content_offset=0,
+                    char_offset=last_page_break,
+                )
+                page.normal(text)
+                pages.append(page)
+                last_page_break = char
+                n_lines = 1
+
+        return Paginated(pages)

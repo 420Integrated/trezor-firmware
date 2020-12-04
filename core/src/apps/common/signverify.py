@@ -5,7 +5,7 @@ from trezor.crypto.hashlib import blake256, sha256
 from trezor.ui.text import Text
 
 from apps.common.confirm import require_confirm
-from apps.common.layout import paginate_content, split_address
+from apps.common.layout import paginate_text, split_address
 from apps.common.writers import write_bitcoin_varint
 
 if False:
@@ -41,7 +41,7 @@ async def require_confirm_sign_message(
 ) -> None:
     header = "Sign {} message".format(coin)
     await require_confirm(
-        ctx, paginate_content([decode_message(message)], header, break_spaces=True)
+        ctx, paginate_text(decode_message(message), header)
     )
 
 
@@ -57,5 +57,6 @@ async def require_confirm_verify_message(
 
     await require_confirm(
         ctx,
-        paginate_content([ui.MONO, decode_message(message)], header, break_spaces=True),
+        # XXX TODO ui.mono
+        paginate_text(decode_message(message), header, break_words=False),
     )

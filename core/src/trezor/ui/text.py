@@ -3,7 +3,7 @@ from micropython import const
 from trezor import ui
 
 if False:
-    from typing import List, Union, Tuple, Iterator, Iterable, Optional
+    from typing import List, Union, Tuple, Generator, Iterator, Iterable, Optional
 
 TEXT_HEADER_HEIGHT = const(48)
 TEXT_LINE_HEIGHT = const(26)
@@ -24,193 +24,151 @@ if False:
     ]  # "word" index, char index, split marker
 
 
-def next_sentinel(
-    iterator: Iterator[BreakIndex], sentinel: BreakIndex = (65535, 0, None)
-) -> BreakIndex:
+LINE_END = ""
+LINE_BREAK = "-"
+PAGE_END = "..."
+WHITESPACE = " \n"
+
+
+class LineBreakInfo:
+    def __init__(self) -> None:
+        self.set(0, 0, LINE_END)
+
+    def set(self, word_index: int, char_index: int, end_marker: str) -> None:
+        self.word_index = word_index
+        self.char_index = char_index
+        self.end_marker = end_marker
+
+
+def next_helper(iterator: Iterator[None]) -> bool:
     try:
-        return next(iterator)
+        next(iterator)
+        return True
     except StopIteration:
-        return sentinel
+        return False
 
 
 def measure_line(
     string: str,
-    string_offset: int = 0,
-    line_width: int = ui.WIDTH,
-    font: int = ui.NORMAL,
-    splitw: int = 0,
-    break_spaces: bool = False,
-) -> Tuple[int, int]:
+    string_offset: int,
+    line_width: int,
+    font: int,
+    splitchar_width: int,
+    break_words: bool,
+) -> int:
+    # XXX this function reuses the same buffer to return values. Do not store it.
     width = 0
-    i_space = None
-    i_split = None
+    result = 0
+    found_space = False
 
-    for i in range(0, len(string) - string_offset):
-        if break_spaces and string[string_offset + i] == " ":
-            i_space = i
+    for i in range(len(string) - string_offset):
+        if string[string_offset + i] in WHITESPACE:
+            # mark this space as a possible result
+            found_space = True
+            result = i
+            if string[string_offset + i] == "\n":
+                # early return for a newline
+                return result
 
-        width += ui.display.text_width(string[string_offset + i], font)
-        if width + splitw < line_width:
-            i_split = i
-        if width >= line_width:
+        nextchar_width = ui.display.text_width(string[string_offset + i], font)
+        if width + nextchar_width >= line_width:
             break
-    else:
-        return i + 1, width  # rest fits
 
-    if i_space is not None:
-        return i_space + 1, width  # split at space
-    elif i_split is not None:
-        return i_split + 1, width + splitw  # split word
+        width += nextchar_width
+        if (break_words or not found_space) and width + splitchar_width < line_width:
+            # We haven't found a space yet, or we are allowed to put breaks
+            # in the middle of words. AND this char fits on a line with the splitchar.
+            # Mark as possible result. (if break_words is disallowed, this solves
+            # the "one word longer than line" case)
+            result = i + 1
+
     else:
-        return 0, 0  # not a single char
+        # whole string (from offset) fits
+        return len(string)
+
+    # at this point either:
+    # (a) we found a space and a result is ready
+    # (b) we found a possible word-split and a result is ready
+    # (c) we are not allowed to break words, and did not find a space, result is word-split
+    # (d) we are allowed to break words, but even the first char won't fit, result is zero
+
+    return result
 
 
 def break_lines(
-    words: List[TextContent],
-    new_lines: bool,
-    max_lines: int,
+    word: str,
+    word_offset: int,
     font: int = ui.NORMAL,
-    offset_x: int = TEXT_MARGIN_LEFT,
-    offset_y: int = TEXT_HEADER_HEIGHT + TEXT_LINE_HEIGHT,
-    offset_x_max: int = ui.WIDTH,
-    break_spaces: bool = False,
-) -> List[BreakIndex]:
-    # initial rendering state
-    INITIAL_OFFSET_X = offset_x
-    offset_y_max = TEXT_HEADER_HEIGHT + (TEXT_LINE_HEIGHT * max_lines)
-
+    offset_x: int = 0,
+    line_width: int = ui.WIDTH - TEXT_MARGIN_LEFT,
+    break_words: bool = False,
+) -> Iterator[int]:
     # sizes of common glyphs
-    DASH = ui.display.text_width("-", ui.BOLD)
-    ELLIPSIS = ui.display.text_width("...", ui.BOLD)
+    DASH = ui.display.text_width(LINE_BREAK, ui.BOLD)
 
-    result = []  # type: List[BreakIndex]
-    word_index = -1
-    for word in words:
-        word_index += 1
+    if not word:
+        # XXX remove when this stops happening
+        return
 
-        has_next_word = word_index < len(words) - 1
+    while True:
+        nchars = measure_line(
+            word,
+            word_offset,
+            line_width - offset_x,
+            font,
+            DASH,
+            break_words,
+        )
 
-        if isinstance(word, int):
-            if word is BR:
-                # line break
-                offset_x = INITIAL_OFFSET_X
-                offset_y += TEXT_LINE_HEIGHT
-                result.append((word_index, 0, None))
-            elif word is BR_HALF:
-                # half-line break
-                offset_x = INITIAL_OFFSET_X
-                offset_y += TEXT_LINE_HEIGHT_HALF
-            elif word in _FONTS:
-                # change of font style
-                font = word
+        if nchars == 0:
+            # not enough space on line for next char
+            # this should only happen at start of word?
+            yield word_offset
+            offset_x = 0
             continue
 
-        width = ui.display.text_width(word, font)
-        char_index = 0
+        word_offset += nchars
+        if word_offset >= len(word):
+            break
 
-        while offset_x + width > offset_x_max or (
-            has_next_word and offset_y >= offset_y_max
-        ):
-            beginning_of_line = offset_x == INITIAL_OFFSET_X
-            last_line = offset_y >= offset_y_max
-            word_fits_in_one_line = width < (offset_x_max - INITIAL_OFFSET_X)
-
-            # avoid breaking the word if it fits on the next line
-            if word_fits_in_one_line and not beginning_of_line and not last_line:
-                result.append((word_index, 0, None))
-                offset_x = INITIAL_OFFSET_X
-                offset_y += TEXT_LINE_HEIGHT
-                break
-
-            nchars, width = measure_line(
-                word,
-                char_index,
-                offset_x_max - offset_x,
-                font,
-                ELLIPSIS if last_line else DASH,
-                break_spaces,
-            )
-
-            # avoid rendering "-" with empty span
-            if nchars == 0 and not last_line and not beginning_of_line:
-                result.append((word_index, char_index, None))
-                offset_x = INITIAL_OFFSET_X
-                offset_y += TEXT_LINE_HEIGHT
-                width = ui.display.text_width(word, font, char_index)
-                continue
-
-            # break up word
-            if break_spaces and word[char_index + nchars - 1] == " ":
-                split = None
-            elif last_line:
-                split = "..."
-            else:
-                split = "-"
-            result.append((word_index, char_index + nchars, split))
-            if last_line:
-                return result
-            offset_x = INITIAL_OFFSET_X
-            offset_y += TEXT_LINE_HEIGHT
-
-            # continue with the rest
-            char_index += nchars
-            width = ui.display.text_width(word, font, char_index)
-
-        if new_lines and has_next_word:
-            # line break
-            result.append((word_index, len(word), None))
-            offset_x = INITIAL_OFFSET_X
-            offset_y += TEXT_LINE_HEIGHT
-        else:
-            # shift cursor
-            offset_x += width
-            offset_x += ui.display.text_width(" ", font)
-
-    return result
+        yield word_offset
+        offset_x = 0
+        if word[word_offset] in WHITESPACE:
+            word_offset += 1
 
 
 def render_text(
     words: List[TextContent],
     new_lines: bool,
     max_lines: int,
-    breaks: Iterable[BreakIndex] = (),
     font: int = ui.NORMAL,
     fg: int = ui.FG,
     bg: int = ui.BG,
     offset_x: int = TEXT_MARGIN_LEFT,
     offset_y: int = TEXT_HEADER_HEIGHT + TEXT_LINE_HEIGHT,
-    line_offset: int = 0,
+    offset_x_max: int = ui.WIDTH,
+    word_offset: int = 0,
+    char_offset: int = 0,
+    break_words: bool = False,
 ) -> None:
     # initial rendering state
     INITIAL_OFFSET_X = offset_x
+    SPACE = ui.display.text_width(" ", font)
     offset_y_max = TEXT_HEADER_HEIGHT + (TEXT_LINE_HEIGHT * max_lines)
+    line_width = offset_x_max
 
-    line_no = 0
-    breaks_it = iter(breaks)
-    break_word_index, break_char_index, break_split = next_sentinel(breaks_it)
-
-    word_index = -1
-    for word in words:
-        word_index += 1
+    for word_index in range(word_offset, len(words)):
+        # load current word
+        word = words[word_index]
 
         if isinstance(word, int):
             if word is BR or word is BR_HALF:
                 # line break or half-line break
-                if offset_y > offset_y_max and line_no >= line_offset:
+                if offset_y > offset_y_max:
                     ui.display.text(offset_x, offset_y, "...", ui.BOLD, ui.GREY, bg)
                     return
-                if word is BR:
-                    assert break_word_index == word_index
-                    break_word_index, break_char_index, break_split = next_sentinel(
-                        breaks_it
-                    )
-                    if line_no >= line_offset:
-                        offset_x = INITIAL_OFFSET_X
-                        offset_y += TEXT_LINE_HEIGHT
-                    line_no += 1
-                else:
-                    offset_x = INITIAL_OFFSET_X
-                    offset_y += TEXT_LINE_HEIGHT_HALF
+                offset_x = INITIAL_OFFSET_X
+                offset_y += TEXT_LINE_HEIGHT if word is BR else TEXT_LINE_HEIGHT_HALF
             elif word in _FONTS:
                 # change of font style
                 font = word
@@ -219,37 +177,41 @@ def render_text(
                 fg = word
             continue
 
-        assert break_word_index >= word_index
+        start_char = char_index = char_offset
+        for char_index in break_lines(
+            word, char_offset, font, offset_x, line_width, break_words
+        ):
+            span_len = char_index - start_char
+            width = ui.display.text_width(word, font, start_char, span_len)
+            ui.display.text(
+                offset_x, offset_y, word, font, fg, bg, start_char, span_len
+            )
+            if word[char_index] not in WHITESPACE:
+                ui.display.text(
+                    offset_x + width, offset_y, LINE_BREAK, ui.BOLD, ui.GREY, bg
+                )
 
-        begin = 0
-        while break_word_index == word_index:
-            span_len = break_char_index - begin
-            width = ui.display.text_width(word, font, begin, span_len)
-
-            if line_no >= line_offset:
-                ui.display.text(offset_x, offset_y, word, font, fg, bg, begin, span_len)
-                if break_split is not None:
-                    ui.display.text(
-                        offset_x + width, offset_y, break_split, ui.BOLD, ui.GREY, bg
-                    )
-
-            if offset_y >= offset_y_max:
+            if offset_y + TEXT_LINE_HEIGHT >= offset_y_max:
+                # if we are here, break_lines promises that there is more to come
+                ui.display.text(offset_x + width, offset_y, "...", ui.BOLD, ui.GREY, bg)
                 return
-            begin = break_char_index
-            break_word_index, break_char_index, break_split = next_sentinel(breaks_it)
-            if line_no >= line_offset:
-                offset_x = INITIAL_OFFSET_X
-                offset_y += TEXT_LINE_HEIGHT
-            line_no += 1
 
-        if begin == len(word):
-            continue
+            offset_x = INITIAL_OFFSET_X
+            offset_y += TEXT_LINE_HEIGHT
+            start_char = char_index
+            if word[char_index] not in WHITESPACE:
+                start_char += 1
 
-        # render word
-        if line_no >= line_offset:
-            ui.display.text(offset_x, offset_y, word, font, fg, bg, begin)
-            offset_x += ui.display.text_width(word, font, begin)
-            offset_x += ui.display.text_width(" ", font)
+        # render last chunk
+        width = ui.display.text_width(word, font, start_char)
+        ui.display.text(offset_x, offset_y, word, font, fg, bg, start_char)
+        offset_x += width
+
+        if new_lines:
+            offset_x = INITIAL_OFFSET_X
+            offset_y += TEXT_LINE_HEIGHT
+        else:
+            offset_x += SPACE
 
 
 class Text(ui.Component):
@@ -260,15 +222,19 @@ class Text(ui.Component):
         icon_color: int = ui.ORANGE_ICON,
         max_lines: int = TEXT_MAX_LINES,
         new_lines: bool = True,
+        break_words: bool = False,
+        content_offset: int = 0,
+        char_offset: int = 0,
     ):
         self.header_text = header_text
         self.header_icon = header_icon
         self.icon_color = icon_color
         self.max_lines = max_lines
         self.new_lines = new_lines
+        self.break_words = break_words
         self.content = []  # type: List[TextContent]
-        self.breaks = None  # type: Optional[List[BreakIndex]]
-        self.line_offset = 0
+        self.content_offset = content_offset
+        self.char_offset = char_offset
         self.repaint = True
 
     def normal(self, *content: TextContent) -> None:
@@ -303,14 +269,13 @@ class Text(ui.Component):
                 ui.BG,
                 self.icon_color,
             )
-            if self.breaks is None:
-                self.breaks = break_lines(self.content, self.new_lines, self.max_lines)
             render_text(
                 self.content,
                 self.new_lines,
                 self.max_lines,
-                breaks=self.breaks,
-                line_offset=self.line_offset,
+                word_offset=self.content_offset,
+                char_offset=self.char_offset,
+                break_words=self.break_words,
             )
             self.repaint = False
 
