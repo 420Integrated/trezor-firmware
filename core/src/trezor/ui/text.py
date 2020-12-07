@@ -179,39 +179,44 @@ def render_text(
 
         start_char = char_index = char_offset
         for char_index in break_lines(
-            word, char_offset, font, offset_x, line_width, break_words
+            word,
+            char_offset,
+            font,
+            offset_x - INITIAL_OFFSET_X,
+            line_width,
+            break_words,
         ):
             span_len = char_index - start_char
-            width = ui.display.text_width(word, font, start_char, span_len)
             ui.display.text(
                 offset_x, offset_y, word, font, fg, bg, start_char, span_len
             )
+            if offset_y + TEXT_LINE_HEIGHT >= offset_y_max:
+                # if we are here, break_lines promises that there is more to come
+                width = ui.display.text_width(word, font, start_char, span_len)
+                ui.display.text(offset_x + width, offset_y, "...", ui.BOLD, ui.GREY, bg)
+                return
+
             if word[char_index] not in WHITESPACE:
+                width = ui.display.text_width(word, font, start_char, span_len)
                 ui.display.text(
                     offset_x + width, offset_y, LINE_BREAK, ui.BOLD, ui.GREY, bg
                 )
 
-            if offset_y + TEXT_LINE_HEIGHT >= offset_y_max:
-                # if we are here, break_lines promises that there is more to come
-                ui.display.text(offset_x + width, offset_y, "...", ui.BOLD, ui.GREY, bg)
-                return
-
             offset_x = INITIAL_OFFSET_X
             offset_y += TEXT_LINE_HEIGHT
             start_char = char_index
-            if word[char_index] not in WHITESPACE:
+            if word[char_index] in WHITESPACE:
                 start_char += 1
 
         # render last chunk
-        width = ui.display.text_width(word, font, start_char)
         ui.display.text(offset_x, offset_y, word, font, fg, bg, start_char)
-        offset_x += width
 
         if new_lines:
             offset_x = INITIAL_OFFSET_X
             offset_y += TEXT_LINE_HEIGHT
         else:
-            offset_x += SPACE
+            width = ui.display.text_width(word, font, start_char)
+            offset_x += width + SPACE
 
 
 class Text(ui.Component):
@@ -225,6 +230,7 @@ class Text(ui.Component):
         break_words: bool = False,
         content_offset: int = 0,
         char_offset: int = 0,
+        line_width: int = ui.WIDTH - TEXT_MARGIN_LEFT,
     ):
         self.header_text = header_text
         self.header_icon = header_icon
@@ -235,6 +241,7 @@ class Text(ui.Component):
         self.content = []  # type: List[TextContent]
         self.content_offset = content_offset
         self.char_offset = char_offset
+        self.line_width = line_width
         self.repaint = True
 
     def normal(self, *content: TextContent) -> None:
@@ -276,6 +283,7 @@ class Text(ui.Component):
                 word_offset=self.content_offset,
                 char_offset=self.char_offset,
                 break_words=self.break_words,
+                offset_x_max=self.line_width + TEXT_MARGIN_LEFT,
             )
             self.repaint = False
 

@@ -142,6 +142,7 @@ async def show_success(
 def paginate_text(
     text: str,
     header: str,
+    font: int = ui.NORMAL,
     header_icon: str = ui.ICON_DEFAULT,
     icon_color: int = ui.ORANGE_ICON,
     break_words: bool = False,
@@ -157,14 +158,14 @@ def paginate_text(
             icon_color=icon_color,
             new_lines=False,
         )
-        result.normal(text)
+        result.content = [font, text]
         return result
     else:
         pages: List[ui.Component] = []
-        n_lines = 1
+        n_lines = 0
         last_page_break = 0
         for char in break_lines(
-            text, 0, break_words=break_words, line_width=206
+            text, 0, break_words=break_words, line_width=190
         ):
             n_lines += 1
             if n_lines > TEXT_MAX_LINES:
@@ -175,8 +176,9 @@ def paginate_text(
                     new_lines=False,
                     content_offset=0,
                     char_offset=last_page_break,
+                    line_width=190,
                 )
-                page.normal(text)
+                page.content = [font, text]
                 pages.append(page)
                 last_page_break = char
                 n_lines = 1
