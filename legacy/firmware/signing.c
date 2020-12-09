@@ -1542,8 +1542,14 @@ static bool signing_confirm_tx(void) {
     char *description = NULL;
     if (rbf_disabled && !orig_rbf_disabled) {
       description = _("Finalize TXID:");
-    } else {
+    } else if (fee != orig_fee) {
       description = _("Modify fee for TXID:");
+    } else {
+      // The host might want to modify nSequence on some inputs (e.g. to
+      // re-enable RBF on a transaction that was dropped from the mempool), add
+      // more inputs and consolidate them in a change-output or use a different
+      // change-output address.
+      description = _("Update TXID:");
     }
 
     // Confirm original TXID.
@@ -1554,12 +1560,14 @@ static bool signing_confirm_tx(void) {
       return false;
     }
 
-    // Final confirmation.
-    layoutConfirmModifyFee(coin, orig_fee, fee);
-    if (!protectButton(ButtonRequestType_ButtonRequest_SignTx, false)) {
-      fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
-      signing_abort();
-      return false;
+    // Fee modification.
+    if (fee != orig_fee) {
+      layoutConfirmModifyFee(coin, orig_fee, fee);
+      if (!protectButton(ButtonRequestType_ButtonRequest_SignTx, false)) {
+        fsm_sendFailure(FailureType_Failure_ActionCancelled, NULL);
+        signing_abort();
+        return false;
+      }
     }
   } else {
     // Standard transaction.

@@ -464,27 +464,23 @@ void layoutConfirmModifyFee(const CoinInfo *coin, uint64_t fee_old,
   char str_fee_new[32] = {0};
   char *question = NULL;
 
-  if (fee_old != fee_new) {
-    uint64_t fee_change = 0;
-    if (fee_old < fee_new) {
-      question = _("Increase your fee by:");
-      fee_change = fee_new - fee_old;
-    } else {
-      question = _("Decrease your fee by:");
-      fee_change = fee_old - fee_new;
-    }
-    bn_format_uint64(fee_change, NULL, coin->coin_shortcut, coin->decimals, 0,
-                     false, str_fee_change, sizeof(str_fee_change));
+  uint64_t fee_change = 0;
+  if (fee_old < fee_new) {
+    question = _("Increase your fee by:");
+    fee_change = fee_new - fee_old;
   } else {
-    question = _("Your fee did not change.");
+    question = _("Decrease your fee by:");
+    fee_change = fee_old - fee_new;
   }
+  bn_format_uint64(fee_change, NULL, coin->coin_shortcut, coin->decimals, 0,
+                   false, str_fee_change, sizeof(str_fee_change));
 
   bn_format_uint64(fee_new, NULL, coin->coin_shortcut, coin->decimals, 0, false,
                    str_fee_new, sizeof(str_fee_new));
 
-  layoutDialogSwipe(&bmp_icon_question, _("Cancel"), _("Confirm"),
-                    _("Fee modification"), question, str_fee_change,
-                    _("Transaction fee:"), str_fee_new, NULL, NULL);
+  layoutDialogSwipe(&bmp_icon_question, _("Cancel"), _("Confirm"), NULL,
+                    question, str_fee_change, NULL, _("Transaction fee:"),
+                    str_fee_new, NULL);
 }
 
 void layoutFeeOverThreshold(const CoinInfo *coin, uint64_t fee) {
